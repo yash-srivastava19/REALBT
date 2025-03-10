@@ -1,0 +1,150 @@
+import click
+import pandas as pd
+import yaml
+import importlib
+import os
+import sys
+import logging
+from datetime import datetime
+import matplotlib.pyplot as plt
+
+from realbt.src.engine import BacktestEngine
+from realbt.strategies.base import Strategy
+
+
+@click.group()
+def cli():
+    """REALBT - REAListic BackTesting framework with accurate market friction modeling."""
+    pass
+
+
+@cli.command("run")
+@click.argument("config_file", type=click.Path(exists=True))
+@click.option("--output", "-o", default="results", help="Output directory for results")
+@click.option("--verbose", "-v", is_flag=True, help="Enable verbose output")
+def run_backtest(config_file, output, verbose):
+    """
+    Run a backtest using a configuration file.
+    
+    CONFIG_FILE should be a YAML file with the backtest configuration.
+    """
+    # Configure logging
+    log_level = logging.DEBUG if verbose else logging.INFO
+    logging.basicConfig(
+        level=log_level,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    logger = logging.getLogger("REALBT-CLI")
+    
+    logger.info(f"Loading configuration from {config_file}")
+    
+    # Load configuration
+    with open(config_file, "r") as f:
+        config = yaml.safe_load(f)
+    
+    # Validate configuration
+    required_keys = ["data_file", "strategy", "initial_capital"]
+    missing_keys = [key for key in required_keys if key not in config]
+    if missing_keys:
+        logger.error(f"Missing required configuration keys: {missing_keys}")
+        sys.exit(1)
+    
+    # Load data
+    logger.info(f"Loading data from {config['data_file']}")
+    try:
+        data = pd.read_csv(config["data_file"], parse_dates=["timestamp"])
+    except Exception as e:
+        logger.error(f"Failed to load data: {e}")
+        sys.exit(1)
+    
+    # Load strategy
+    logger.info(f"Loading strategy {config['strategy']['class']}")
+    try:
+        # Parse strategy class path
+        module_path, class_name = config["strategy"]["class"].rsplit(".", 1)
+        
+        # Import module
+        module = importlib.import_module(module_path)
+        
+        # Get strategy class
+        strategy_class = getattr(module, class_name)
+        
+        # Create strategy instance
+        strategy_args = config["strategy"].get("args", {})
+        strategy = strategy_class(**strategy_args)
+    except Exception as e:
+        logger.error(f"Failed to load strategy: {e}")
+        sys.exit(1)
+    
+    # Create backtest engine
+    engine = BacktestEngine(
+        data=data,
+        strategy=strategy,
+        initial_capital=config["initial_capital"],
+        max_position_pct=config.get("max_position_pct", 0.1),
+        max_leverage=config.get("max_leverage", 1.0),
+        log_level=log_level
+    )
+    
+    # Run backtest
+    logger.info("Running backtest")
+    results = engine.run()
+    
+    # Create output directory
+    os.makedirs(output, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    # Save results
+    results.to_csv(f"{output}/results_{timestamp}.csv", index=False)
+    
+    # Save orders
+    if engine.orders:
+        orders_df = pd.DataFrame(engine.orders)
+        orders_df.to_csv(f"{output}/orders_{timestamp}.csv", index=False)
+    
+    # Save performance metrics
+    metrics = {k: v for k, v in results.attrs.items()}
+    with open(f"{output}/metrics_{timestamp}.yaml", "w") as f:
+        yaml.dump(metrics, f)
+    
+    # Generate performance report
+    _generate_report(results, engine.orders, config, f"{output}/report_{timestamp}.html")
+    
+    # Display key metrics
+    click.echo("\nBacktest Results:")
+    click.echo(f"Initial Capital: ${config['initial_capital']:,.2f}")
+    click.echo(f"Final Portfolio Value: ${results['portfolio_value'].iloc[-1]:,.2f}")
+    click.echo(f"Total Return: {results['portfolio_value'].iloc[-1] / config['initial_capital'] - 1:.2%}")
+    click.echo(f"Annualized Return: {results.attrs.get('annualized_return', 0):.2%}")
+    click.echo(f"Annualized Volatility: {results.attrs.get('annualized_volatility', 0):.2%}")
+    click.echo(f"Sharpe Ratio: {results.attrs.get('sharpe_ratio', 0):.2f}")
+    click.echo(f"Maximum Drawdown: {results.attrs.get('max_drawdown', 0):.2%}")
+    
+    if "total_trades" in results.attrs:
+        click.echo(f"Total Trades: {results.attrs['total_trades']}")
+        click.echo(f"Total Transaction Costs: ${results.attrs.get('total_transaction_costs', 0):,.2f}")
+        click.echo(f"Total Slippage: ${results.attrs.get('total_slippage', 0):,.2f}")
+        click.echo(f"Total Market Impact: ${results.attrs.get('total_market_impact', 0):,.2f}")
+    
+    click.echo(f"\nResults saved to {output}/ directory")
+
+
+@cli.command("new")
+@click.argument("project_name")
+@click.option("--directory", "-d", default=".", help="Target directory")
+def create_new_project(project_name, directory):
+    """
+    Create a new REALBT project with sample files.
+    
+    PROJECT_NAME is the name of the project.
+    """
+    project_dir = os.path.join(directory, project_name)
+    
+    # Create project directories
+    os.makedirs(os.path.join(project_dir, "data"), exist_ok=True)
+    os.makedirs(os.path.join(project_dir, "results"), exist_ok=True)
+    os.makedirs(os.path.join(project_dir, "strategies"), exist_ok=True)
+    
+    # Create sample strategy file
+    with open(os.path.join(project_dir, "strategies", "sample_strategy.py"), "w") as f:
+        f.write("""from""")

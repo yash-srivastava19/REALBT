@@ -5,10 +5,11 @@ from datetime import datetime
 import logging
 from tqdm import tqdm
 
-from realbt.strategies.base import Strategy
-from realbt.costs.impact import MarketImpactModel
-from realbt.costs.slippage import SlippageModel
-from realbt.costs.transaction import TransactionCostModel
+# from ..strategies.base import Strategy
+
+# from ..costs.impact import MarketImpactModel
+# from ..costs.slippage import SlippageModel
+# from realbt.costs.transaction import TransactionCostModel
 
 
 class BacktestEngine:
@@ -19,11 +20,11 @@ class BacktestEngine:
     def __init__(
         self,
         data: pd.DataFrame,
-        strategy: Strategy,
+        strategy,
         initial_capital: float = 1_000_000.0,
-        impact_model: Optional[MarketImpactModel] = None,
-        slippage_model: Optional[SlippageModel] = None,
-        transaction_cost_model: Optional[TransactionCostModel] = None,
+        impact_model = None,
+        slippage_model = None,
+        transaction_cost_model = None,
         max_position_pct: float = 0.1,  # Maximum position size as percentage of portfolio
         max_leverage: float = 1.0,      # Maximum leverage (1.0 = no leverage)
         log_level: int = logging.INFO
@@ -110,7 +111,7 @@ class BacktestEngine:
         self.logger.info(f"Starting backtest with {len(self.data)} data points")
         
         # Initialize strategy
-        self.strategy.initialize()
+        # self.strategy.initialize()
         
         # Get unique timestamps to iterate through
         timestamps = self.data["timestamp"].unique()
@@ -122,7 +123,7 @@ class BacktestEngine:
             latest_data = self.data[self.data["timestamp"] == ts]
             
             # Generate signals from strategy
-            signals = self.strategy.generate_signals(current_data, ts)
+            signals = self.strategy.generate_signals(current_data)
             
             # Execute orders based on signals
             self._execute_orders(signals, latest_data, ts)
@@ -131,7 +132,7 @@ class BacktestEngine:
             self._update_portfolio_value(latest_data, ts)
         
         # Strategy teardown
-        self.strategy.teardown()
+        # self.strategy.teardown()
         
         # Compile results
         results = pd.DataFrame(self.portfolio_history)

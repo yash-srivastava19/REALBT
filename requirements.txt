@@ -1,1 +1,5 @@
 # Add your dependencies here
+plotly==6.0.0
+click==8.0.1 
+pandas==2.2.3
+pyyaml==6.0

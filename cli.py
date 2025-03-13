@@ -6,12 +6,67 @@ import os
 import sys
 import logging
 from datetime import datetime
-import matplotlib.pyplot as plt
+from src.engine import BacktestEngine
+import plotly.graph_objects as go
+import plotly.express as px
 
-from realbt.src.engine import BacktestEngine
-from realbt.strategies.base import Strategy
+def _generate_report(results, orders, config, output_file):
+    """
+    Generate an interactive HTML report summarizing the backtest results.
+    
+    :param results: DataFrame containing the backtest results
+    :param orders: List of orders executed during the backtest
+    :param config: Configuration dictionary used for the backtest
+    :param output_file: Path to the output HTML file
+    """
+    # Create interactive plot
+    fig = px.line(results, x='timestamp', y='portfolio_value', title='Portfolio Value Over Time')
+    fig.update_layout(
+        xaxis_title='Time',
+        yaxis_title='Portfolio Value',
+        template='plotly_dark'
+    )
 
+    # Save plot to HTML file
+    plot_file = f"{output_file}_portfolio_value.html"
+    fig.write_html(plot_file)
+    src_path_html = plot_file.replace("results/", "") 
 
+    # Create HTML report
+    report_html = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Backtest Report</title>
+    </head>
+    <body>
+        <h1>Backtest Report</h1>
+        <h2>Configuration</h2>
+        <pre>{yaml.dump(config, default_flow_style=False)}</pre>
+        <h2>Key Metrics</h2>
+        <ul>
+            <li>Initial Capital: ${config['initial_capital']:,.2f}</li>
+            <li>Final Portfolio Value: ${results['portfolio_value'].iloc[-1]:,.2f}</li>
+            <li>Total Return: {results['portfolio_value'].iloc[-1] / config['initial_capital'] - 1:.2%}</li>
+            <li>Annualized Return: {results.attrs.get('annualized_return', 0):.2%}</li>
+            <li>Annualized Volatility: {results.attrs.get('annualized_volatility', 0):.2%}</li>
+            <li>Sharpe Ratio: {results.attrs.get('sharpe_ratio', 0):.2f}</li>
+            <li>Maximum Drawdown: {results.attrs.get('max_drawdown', 0):.2%}</li>
+            {f"<li>Total Trades: {results.attrs['total_trades']}</li>" if 'total_trades' in results.attrs else ''}
+            {f"<li>Total Transaction Costs: ${results.attrs.get('total_transaction_costs', 0):,.2f}</li>" if 'total_transaction_costs' in results.attrs else ''}
+            {f"<li>Total Slippage: ${results.attrs.get('total_slippage', 0):,.2f}</li>" if 'total_slippage' in results.attrs else ''}
+            {f"<li>Total Market Impact: ${results.attrs.get('total_market_impact', 0):,.2f}</li>" if 'total_market_impact' in results.attrs else ''}
+        </ul>
+        <h2>Portfolio Value Over Time</h2>
+        <iframe src="{src_path_html}" width="100%" height="600"></iframe>
+    </body>
+    </html>
+    """
+
+    with open(output_file, "w") as f:
+        f.write(report_html)
 @click.group()
 def cli():
     """REALBT - REAListic BackTesting framework with accurate market friction modeling."""
@@ -29,6 +84,7 @@ def run_backtest(config_file, output, verbose):
     CONFIG_FILE should be a YAML file with the backtest configuration.
     """
     # Configure logging
+    print("Running backtest")
     log_level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(
         level=log_level,
@@ -148,3 +204,6 @@ def create_new_project(project_name, directory):
     # Create sample strategy file
     with open(os.path.join(project_dir, "strategies", "sample_strategy.py"), "w") as f:
         f.write("""from""")
+
+if __name__ == "__main__":
+    cli()

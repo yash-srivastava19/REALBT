@@ -27,13 +27,58 @@ def _generate_report(results, orders, config, output_file):
     :param output_file: Path to the output HTML file
     """
     # Create interactive plot
-    fig = px.line(results, x='timestamp', y='portfolio_value', title='Portfolio Value Over Time')
-    fig.update_layout(
-        xaxis_title='Time',
-        yaxis_title='Portfolio Value',
-        template='plotly_dark'
-    )
+    print(results.columns)
+    from plotly.subplots import make_subplots
+    fig = make_subplots(rows=4, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.25, 0.1, 0.45, 0.2], subplot_titles=("Equity Curve", "Profit/Loss", "OHLC Chart", "Drawdown"))
+    
+    trade_dates = results["timestamp"]
+    trade_profits = results["returns"]
+    trade_colors = ["green" if x > 0 else "red" for x in trade_profits]
+    
+    # Equity Curve
+    fig.add_trace(go.Scatter(x=trade_dates, y=results["portfolio_value"], mode="lines", name="Portfolio Value", line=dict(color="blue", width=2)),row=1, col=1)
 
+    #Profit Loss Curves
+    fig.add_trace(go.Scatter(x=trade_dates, y=trade_profits, mode="markers", marker = dict(size=10, color=trade_colors, opacity=0.6), name="Trades"), row=2, col=1)
+    
+    #OHLC Candlestick Chart
+    fig.add_trace(go.Candlestick(x=trade_dates, 
+            open=results["portfolio_value"] - results["position_value"] * 0.02, 
+            high=results["portfolio_value"] + results["position_value"] * 0.03, 
+            low=results["portfolio_value"] - results["position_value"] * 0.03, 
+            close=results["portfolio_value"],
+            increasing_line_color= 'green', decreasing_line_color= 'red', 
+            name="OHLC"), row=3, col=1)
+    
+    #Moving Averages
+    fig.add_trace(go.Scatter(
+        x=trade_dates, y=results["portfolio_value"].rolling(window=10).mean(),
+        mode="lines", name="SMA 10", line=dict(color="orange", width=1.5, dash="dot")
+    ), row=3, col=1)
+
+    fig.add_trace(go.Scatter(
+        x=trade_dates, y=results["portfolio_value"].rolling(window=20).mean(),
+        mode="lines", name="SMA 20", line=dict(color="blue", width=1, dash="dash")
+    ), row=3, col=1)
+
+    #Drawdown
+    fig.add_trace(go.Scatter(x=trade_dates, y=results["drawdown"], mode="lines", name="Drawdown", line=dict(color="red", width=2), fill="tozeroy"), row=4, col=1)
+    
+    fig.update_layout(height=1000, width=1400, title="Backtest Results",
+                  xaxis_rangeslider_visible=False, template="plotly_white", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+    # fig = px.line(results, x='timestamp', y='portfolio_value', title='Portfolio Value Over Time')
+    # fig.update_layout(
+    #     xaxis_title='Time',
+    #     yaxis_title='Portfolio Value',
+    #     template='plotly_white',
+    #     title_font_size=18,
+    #     font = dict(size=14),
+    # )
+
+    # fig.update_xaxes(showgrid=True, gridwidth=0.5, gridcolor='green')
+    # fig.update_yaxes(showgrid=True, gridwidth=0.5, gridcolor='green')
+
+    # fig.update_traces(line=dict(width=2))
     # Save plot to HTML file
     plot_file = f"{output_file}_portfolio_value.html"
     fig.write_html(plot_file)

@@ -153,109 +153,118 @@ class BacktestEngine:
             data: Latest market data
             timestamp: Current timestamp
         """
-        for symbol, target_position in signals.items():
-            # Get current position
-            current_position = self.positions.get(symbol, 0.0)
-            
-            # Skip if no change in position
-            if target_position == current_position:
+        # signals is made of timestamp and signal, not symbol and target_position
+
+        for signal_timestamp, signal in signals.items():
+            if signal_timestamp != timestamp:
                 continue
             
-            # Get latest price data for this symbol
-            symbol_data = data[data["symbol"] == symbol]
-            if len(symbol_data) == 0:
-                self.logger.warning(f"No data for {symbol} at {timestamp}, skipping order")
-                continue
+            for symbol in data["symbol"].unique():
+                # Get current position
+                current_position = self.positions.get(symbol, 0.0)
                 
-            price = symbol_data["close"].iloc[0]
-            volume = symbol_data["volume"].iloc[0]
-            
-            # Calculate volatility (for slippage model)
-            # Use 20-day standard deviation of returns as a simple volatility estimate
-            symbol_history = self.data[
-                (self.data["symbol"] == symbol) & 
-                (self.data["timestamp"] <= timestamp)
-            ].tail(21)
-            
-            volatility = 0.01  # Default if we don't have enough history
-            if len(symbol_history) > 5:
-                returns = symbol_history["close"].pct_change().dropna()
-                volatility = returns.std()
-            
-            # Calculate order size in shares
-            portfolio_value = self.portfolio_history[-1]["portfolio_value"] if self.portfolio_history else self.initial_capital
-            position_value = price * current_position
-            target_value = portfolio_value * target_position * self.max_position_pct
-            
-            # Limit by max leverage
-            total_exposure = sum(abs(self.positions.get(s, 0) * data[data["symbol"] == s]["close"].iloc[0]) 
-                                for s in self.positions if s in data["symbol"].values)
-            total_exposure -= abs(position_value)  # Remove current position from calculation
-            
-            # Calculate maximum additional exposure allowed
-            max_additional_exposure = portfolio_value * self.max_leverage - total_exposure
-            target_value = min(target_value, max_additional_exposure)
-            
-            # Calculate order size in shares
-            order_size = (target_value - position_value) / price
-            
-            # Skip tiny orders
-            if abs(order_size) < 1:
-                continue
+                # Determine target position based on signal
+                target_position = 1.0 if signal == "buy" else 0.0
                 
-            # Determine order direction
-            side = "buy" if order_size > 0 else "sell"
-            
-            # Calculate average daily volume (ADV)
-            adv_history = self.data[
-                (self.data["symbol"] == symbol) & 
-                (self.data["timestamp"] < timestamp)
-            ].tail(20)
-            
-            adv = adv_history["volume"].mean() if len(adv_history) > 0 else volume
-            
-            # Apply market impact
-            impact = self.impact_model(price, order_size, adv, side)
-            
-            # Apply slippage
-            slippage = self.slippage_model(price, order_size, adv, volatility)
-            
-            # Calculate execution price
-            execution_price = price + (impact + slippage if side == "buy" else -impact - slippage)
-            
-            # Calculate transaction costs
-            transaction_cost = self.transaction_cost_model(execution_price, order_size)
-            
-            # Execute order
-            new_position = current_position + order_size
-            order_value = order_size * execution_price
-            total_cost = abs(order_value) + transaction_cost
-            
-            # Update capital
-            self.current_capital -= order_value + transaction_cost
-            
-            # Update positions
-            self.positions[symbol] = new_position
-            
-            # Record order
-            order = {
-                "timestamp": timestamp,
-                "symbol": symbol,
-                "side": side,
-                "size": abs(order_size),
-                "price": price,
-                "execution_price": execution_price,
-                "impact": impact,
-                "slippage": slippage,
-                "transaction_cost": transaction_cost,
-                "total_cost": total_cost,
-                "previous_position": current_position,
-                "new_position": new_position
-            }
-            self.orders.append(order)
-            
-            # Notify strategy
-            self.strategy.handle_filled_order(order)
+                # Skip if no change in position
+                if target_position == current_position:
+                    continue
+                
+                # Get latest price data for this symbol
+                symbol_data = data[data["symbol"] == symbol]
+                if len(symbol_data) == 0:
+                    self.logger.warning(f"No data for {symbol} at {timestamp}, skipping order")
+                    continue
+                    
+                price = symbol_data["close"].iloc[0]
+                volume = symbol_data["volume"].iloc[0]
+                
+                # Calculate volatility (for slippage model)
+                # Use 20-day standard deviation of returns as a simple volatility estimate
+                symbol_history = self.data[
+                    (self.data["symbol"] == symbol) & 
+                    (self.data["timestamp"] <= timestamp)
+                ].tail(21)
+                
+                volatility = 0.01  # Default if we don't have enough history
+                if len(symbol_history) > 5:
+                    returns = symbol_history["close"].pct_change().dropna()
+                    volatility = returns.std()
+                
+                # Calculate order size in shares
+                portfolio_value = self.portfolio_history[-1]["portfolio_value"] if self.portfolio_history else self.initial_capital
+                position_value = price * current_position
+                target_value = portfolio_value * target_position * self.max_position_pct
+                
+                # Limit by max leverage
+                total_exposure = sum(abs(self.positions.get(s, 0) * data[data["symbol"] == s]["close"].iloc[0]) 
+                                    for s in self.positions if s in data["symbol"].values)
+                total_exposure -= abs(position_value)  # Remove current position from calculation
+                
+                # Calculate maximum additional exposure allowed
+                max_additional_exposure = portfolio_value * self.max_leverage - total_exposure
+                target_value = min(target_value, max_additional_exposure)
+                
+                # Calculate order size in shares
+                order_size = (target_value - position_value) / price
+                
+                # Skip tiny orders
+                if abs(order_size) < 1:
+                    continue
+                    
+                # Determine order direction
+                side = "buy" if order_size > 0 else "sell"
+                
+                # Calculate average daily volume (ADV)
+                adv_history = self.data[
+                    (self.data["symbol"] == symbol) & 
+                    (self.data["timestamp"] < timestamp)
+                ].tail(20)
+                
+                adv = adv_history["volume"].mean() if len(adv_history) > 0 else volume
+                
+                # Apply market impact
+                impact = self.impact_model(price, order_size, adv, side)
+                
+                # Apply slippage
+                slippage = self.slippage_model(price, order_size, adv, volatility)
+                
+                # Calculate execution price
+                execution_price = price + (impact + slippage if side == "buy" else -impact - slippage)
+                
+                # Calculate transaction costs
+                transaction_cost = self.transaction_cost_model(execution_price, order_size)
+                
+                # Execute order
+                new_position = current_position + order_size
+                order_value = order_size * execution_price
+                total_cost = abs(order_value) + transaction_cost
+                
+                # Update capital
+                self.current_capital -= order_value + transaction_cost
+                
+                # Update positions
+                self.positions[symbol] = new_position
+                
+                # Record order
+                order = {
+                    "timestamp": timestamp,
+                    "symbol": symbol,
+                    "side": side,
+                    "size": abs(order_size),
+                    "price": price,
+                    "execution_price": execution_price,
+                    "impact": impact,
+                    "slippage": slippage,
+                    "transaction_cost": transaction_cost,
+                    "total_cost": total_cost,
+                    "previous_position": current_position,
+                    "new_position": new_position
+                }
+                self.orders.append(order)
+                
+                # Notify strategy
+                self.strategy.handle_filled_order(order)
     
     def _update_portfolio_value(self, data: pd.DataFrame, timestamp: pd.Timestamp) -> None:
         """

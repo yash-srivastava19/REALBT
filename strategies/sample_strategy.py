@@ -7,6 +7,9 @@ class SampleStrategy:
         # Implement your strategy logic here
         signals = {}
         for index, row in data.iterrows():
-            signals["timestamp"] = row["timestamp"]
-            signals["signal"] = "buy" if row["price"] > 100 else "sell"
+            signals[row["timestamp"]] = "buy" if row["price"] > 100 else "sell"
         return signals
+    
+    def handle_filled_order(self, order):
+        # Handle filled order
+        pass

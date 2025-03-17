@@ -9,6 +9,13 @@ from datetime import datetime
 from src.engine import BacktestEngine
 import plotly.graph_objects as go
 import plotly.express as px
+from data.fetch_data import fetch_stock_data
+
+@click.group()
+def cli():
+    """REALBT - REAListic BackTesting framework with accurate market friction modeling."""
+    pass
+
 
 def _generate_report(results, orders, config, output_file):
     """
@@ -67,11 +74,43 @@ def _generate_report(results, orders, config, output_file):
 
     with open(output_file, "w") as f:
         f.write(report_html)
-@click.group()
-def cli():
-    """REALBT - REAListic BackTesting framework with accurate market friction modeling."""
-    pass
 
+@cli.command("new")
+@click.argument("project_name")
+@click.option("--directory", "-d", default=".", help="Target directory")
+def create_new_project(project_name, directory):
+    """
+    Create a new REALBT project with sample files.
+    
+    PROJECT_NAME is the name of the project.
+    """
+    project_dir = os.path.join(directory, project_name)
+    
+    # Create project directories
+    os.makedirs(os.path.join(project_dir, "data"), exist_ok=True)
+    os.makedirs(os.path.join(project_dir, "results"), exist_ok=True)
+    os.makedirs(os.path.join(project_dir, "strategies"), exist_ok=True)
+    
+    # Create sample strategy file
+    with open(os.path.join(project_dir, "strategies", "sample_strategy.py"), "w") as f:
+        f.write("""from""")
+
+###
+@cli.command("fetch-data")
+@click.argument("ticker")
+@click.argument("start_date")
+@click.argument("end_date")
+@click.argument("output_file", type=click.Path())
+def fetch_data(ticker, start_date, end_date, output_file):
+    """
+    Fetch stock data from Yahoo Finance.
+    
+    TICKER is the stock ticker symbol.
+    START_DATE is the start date for fetching data (YYYY-MM-DD).
+    END_DATE is the end date for fetching data (YYYY-MM-DD).
+    OUTPUT_FILE is the path to the output CSV file.
+    """
+    fetch_stock_data(ticker, start_date, end_date, output_file)
 
 @cli.command("run")
 @click.argument("config_file", type=click.Path(exists=True))
@@ -184,26 +223,7 @@ def run_backtest(config_file, output, verbose):
     
     click.echo(f"\nResults saved to {output}/ directory")
 
-
-@cli.command("new")
-@click.argument("project_name")
-@click.option("--directory", "-d", default=".", help="Target directory")
-def create_new_project(project_name, directory):
-    """
-    Create a new REALBT project with sample files.
-    
-    PROJECT_NAME is the name of the project.
-    """
-    project_dir = os.path.join(directory, project_name)
-    
-    # Create project directories
-    os.makedirs(os.path.join(project_dir, "data"), exist_ok=True)
-    os.makedirs(os.path.join(project_dir, "results"), exist_ok=True)
-    os.makedirs(os.path.join(project_dir, "strategies"), exist_ok=True)
-    
-    # Create sample strategy file
-    with open(os.path.join(project_dir, "strategies", "sample_strategy.py"), "w") as f:
-        f.write("""from""")
+###
 
 if __name__ == "__main__":
     cli()

@@ -12,23 +12,68 @@ from tqdm import tqdm
 # from realbt.costs.transaction import TransactionCostModel
 
 
+class PortfolioHistory:
+    """Portfolio History Dataset - reduces a lot of boilerplate down the road. """
+    def __init__(self):
+        self._history = []
+    
+    @property
+    def history(self):
+        return self._history
+    
+    @history.getter
+    def history(self):
+        return self._history
+
+    @history.setter
+    def history(self, val):
+        self._history.append(val)
+
+class Order:
+    """Custom Data Structure for processing Orders"""
+    def __init__(self):
+        self._order = []
+    
+    @property
+    def order(self):
+        return self._order
+    
+    @order.getter
+    def order(self,):
+        return self._order
+
+    @order.setter
+    def add_order(self, val):
+        self._order.append(val) 
+
+class Position:
+    """Data Structure for handling symbol,shares pairs."""
+    def __init__(self):
+        self._position = {}
+
+    @property
+    def position(self):
+        return self._position
+    
+    @position.getter
+    def position(self, val, default=0.0):
+        return self._position.get(val, default)
+
+    @position.setter
+    def add_position(self, key, val):
+        self._position[key] = val  
+
 class BacktestEngine:
     """
     Core backtesting engine that simulates strategy execution with realistic market friction.
     """
     
     def __init__(
-        self,
-        data: pd.DataFrame,
-        strategy,
-        initial_capital: float = 1_000_000.0,
-        impact_model = None,
-        slippage_model = None,
-        transaction_cost_model = None,
+        self, data: pd.DataFrame | str,
+        strategy, initial_capital: float = 1_000_000.0, impact_model = None, slippage_model = None, transaction_cost_model = None,
         max_position_pct: float = 0.1,  # Maximum position size as percentage of portfolio
         max_leverage: float = 1.0,      # Maximum leverage (1.0 = no leverage)
-        log_level: int = logging.INFO
-    ):
+        log_level: int = logging.INFO):
         """
         Initialize the backtest engine.
         
@@ -44,25 +89,24 @@ class BacktestEngine:
             max_leverage: Maximum leverage allowed
             log_level: Logging level
         """
-        self.data = data.sort_values(["timestamp", "symbol"]).reset_index(drop=True)
-        self.strategy = strategy
-        self.initial_capital = initial_capital
-        self.current_capital = initial_capital
+        self.data = self.fetch_or_read_data(data)
         
-        # Market friction models
-        # If not provided, we'll create default models
+        # Market friction models and strategy models. If not provided, we'll create default models.
+        self.strategy = strategy
         self.impact_model = impact_model or self._default_impact_model()
         self.slippage_model = slippage_model or self._default_slippage_model()
         self.transaction_cost_model = transaction_cost_model or self._default_transaction_cost_model()
         
-        # Position constraints
+        # Position constraints and capitals.
+        self.initial_capital = initial_capital
+        self.current_capital = initial_capital
         self.max_position_pct = max_position_pct
         self.max_leverage = max_leverage
         
-        # Results tracking
-        self.portfolio_history = []
-        self.orders = []
-        self.positions = {}
+        # Results tracking - TODO: Use custom dataset for each of these, makes it much better.
+        self.portfolio_history = PortfolioHistory()
+        self.orders = Order()
+        self.positions = Position()
         
         # Setup logging
         logging.basicConfig(
@@ -71,11 +115,22 @@ class BacktestEngine:
         )
         self.logger = logging.getLogger("REALBT")
     
+    def fetch_or_read_data(self, data: pd.DataFrame | str):
+        if isinstance(data, str):
+            raise NotImplementedError("The ability to fetch ticker data based on string is still in progress")
+        elif isinstance(data, pd.DataFrame):
+            return data.sort_values(["timestamp", "symbol"]).reset_index(drop=True)
+        else:
+            raise Exception("Data should be either a ticker string, or pandas Dataframe ")
+
+    def initialize(self):
+        pass
+    
     def _default_impact_model(self) -> Callable:
         """Create a simple default market impact model"""
         # Simple square-root model: impact = factor * sqrt(order_size / ADV)
-        def model(price, order_size, adv, side):
-            impact_factor = 0.1
+        def model(price, order_size, adv, side, impact_factor=0.1):
+            impact_factor = impact_factor
             normalized_size = abs(order_size) / adv if adv > 0 else 0
             impact = impact_factor * price * np.sqrt(normalized_size)
             return impact if side == "buy" else -impact
@@ -84,9 +139,9 @@ class BacktestEngine:
     def _default_slippage_model(self) -> Callable:
         """Create a simple default slippage model"""
         # Simple model: slippage = half spread + volatility component
-        def model(price, order_size, adv, volatility):
-            half_spread = price * 0.0005  # 1 basis point (0.01%) half-spread
-            vol_component = price * volatility * 0.1 * min(1.0, abs(order_size) / adv)
+        def model(price, order_size, adv, volatility, half_spread_pct=0.0005, vol_component_factor=0.1):
+            half_spread = price * half_spread_pct  # 1 basis point (0.01%) half-spread
+            vol_component = price * volatility * vol_component_factor * min(1.0, abs(order_size) / adv)
             slippage = half_spread + vol_component
             return slippage
         return model
@@ -94,9 +149,7 @@ class BacktestEngine:
     def _default_transaction_cost_model(self) -> Callable:
         """Create a simple default transaction cost model"""
         # Fixed percentage + minimum fee
-        def model(price, order_size):
-            percentage_fee = 0.001  # 0.1%
-            min_fee = 1.0  # $1 minimum
+        def model(price, order_size, percentage_fee=0.001, min_fee=1.0):
             cost = max(min_fee, abs(price * order_size * percentage_fee))
             return cost
         return model
@@ -135,7 +188,7 @@ class BacktestEngine:
         # self.strategy.teardown()
         
         # Compile results
-        results = pd.DataFrame(self.portfolio_history)
+        results = pd.DataFrame(self.portfolio_history.history)
         
         # Calculate performance metrics
         self._calculate_performance_metrics(results)
@@ -153,15 +206,14 @@ class BacktestEngine:
             data: Latest market data
             timestamp: Current timestamp
         """
-        # signals is made of timestamp and signal, not symbol and target_position
 
         for signal_timestamp, signal in signals.items():
-            if signal_timestamp != timestamp:
+            if signal_timestamp != timestamp:  #skip the current timestamp in context.
                 continue
             
             for symbol in data["symbol"].unique():
                 # Get current position
-                current_position = self.positions.get(symbol, 0.0)
+                current_position = self.positions.position.get(symbol, 0.0)  # our current position starts from zero, and later the position in the loop the ds will be updated.
                 
                 # Determine target position based on signal
                 target_position = 1.0 if signal == "buy" else 0.0
@@ -186,19 +238,20 @@ class BacktestEngine:
                     (self.data["timestamp"] <= timestamp)
                 ].tail(21)
                 
-                volatility = 0.01  # Default if we don't have enough history
                 if len(symbol_history) > 5:
                     returns = symbol_history["close"].pct_change().dropna()
                     volatility = returns.std()
+                else:
+                    volatility = 0.01  # Default if we don't have enough history
                 
                 # Calculate order size in shares
-                portfolio_value = self.portfolio_history[-1]["portfolio_value"] if self.portfolio_history else self.initial_capital
+                portfolio_value = self.portfolio_history.history[-1]["portfolio_value"] if self.portfolio_history.history else self.initial_capital
                 position_value = price * current_position
                 target_value = portfolio_value * target_position * self.max_position_pct
                 
                 # Limit by max leverage
-                total_exposure = sum(abs(self.positions.get(s, 0) * data[data["symbol"] == s]["close"].iloc[0]) 
-                                    for s in self.positions if s in data["symbol"].values)
+                total_exposure = sum(abs(self.positions.position.get(s, 0) * data[data["symbol"] == s]["close"].iloc[0]) 
+                                    for s in self.positions.position if s in data["symbol"].values)
                 total_exposure -= abs(position_value)  # Remove current position from calculation
                 
                 # Calculate maximum additional exposure allowed
@@ -209,7 +262,7 @@ class BacktestEngine:
                 order_size = (target_value - position_value) / price
                 
                 # Skip tiny orders
-                if abs(order_size) < 1:
+                if abs(order_size) < 1: # infinite loop othewise.
                     continue
                     
                 # Determine order direction
@@ -244,7 +297,7 @@ class BacktestEngine:
                 self.current_capital -= order_value + transaction_cost
                 
                 # Update positions
-                self.positions[symbol] = new_position
+                self.positions.position[symbol] = new_position
                 
                 # Record order
                 order = {
@@ -261,7 +314,7 @@ class BacktestEngine:
                     "previous_position": current_position,
                     "new_position": new_position
                 }
-                self.orders.append(order)
+                self.orders.order.append(order)
                 
                 # Notify strategy
                 self.strategy.handle_filled_order(order)
@@ -276,7 +329,7 @@ class BacktestEngine:
         """
         # Calculate position values
         position_value = 0.0
-        for symbol, shares in self.positions.items():
+        for symbol, shares in self.positions.position.items():
             # Skip if position is zero
             if shares == 0:
                 continue
@@ -306,18 +359,18 @@ class BacktestEngine:
         # Record portfolio state
         portfolio_state = {
             "timestamp": timestamp,
-            "cash": self.current_capital,
+            "cash": self.current_capital, # before this line, the capital must've been updated.
             "position_value": position_value,
             "portfolio_value": portfolio_value,
             "returns": 0.0  # Will calculate after we have history
         }
         
         # Calculate return if we have history
-        if self.portfolio_history:
-            prev_value = self.portfolio_history[-1]["portfolio_value"]
+        if self.portfolio_history.history:
+            prev_value = self.portfolio_history.history[-1]["portfolio_value"]
             portfolio_state["returns"] = (portfolio_value / prev_value) - 1.0
         
-        self.portfolio_history.append(portfolio_state)
+        self.portfolio_history.history.append(portfolio_state)
     
     def _calculate_performance_metrics(self, results: pd.DataFrame) -> None:
         """
@@ -358,8 +411,8 @@ class BacktestEngine:
         results.attrs["max_drawdown"] = results["drawdown"].min()
         
         # Transaction analysis
-        if self.orders:
-            orders_df = pd.DataFrame(self.orders)
+        if self.orders.order:
+            orders_df = pd.DataFrame(self.orders.order)
             results.attrs["total_trades"] = len(orders_df)
             results.attrs["total_volume"] = orders_df["size"].sum()
             results.attrs["total_transaction_costs"] = orders_df["transaction_cost"].sum()

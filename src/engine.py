@@ -43,7 +43,7 @@ class Order:
         return self._order
 
     @order.setter
-    def add_order(self, val):
+    def order(self, val):
         self._order.append(val) 
 
 class Position:
@@ -213,7 +213,7 @@ class BacktestEngine:
             
             for symbol in data["symbol"].unique():
                 # Get current position
-                current_position = self.positions.position.get(symbol, 0.0)  # our current position starts from zero, and later the position in the loop the ds will be updated.
+                current_position = self.positions._position.get(symbol, 0.0)  # our current position starts from zero, and later the position in the loop the ds will be updated.
                 
                 # Determine target position based on signal
                 target_position = 1.0 if signal == "buy" else 0.0
@@ -250,8 +250,8 @@ class BacktestEngine:
                 target_value = portfolio_value * target_position * self.max_position_pct
                 
                 # Limit by max leverage
-                total_exposure = sum(abs(self.positions.position.get(s, 0) * data[data["symbol"] == s]["close"].iloc[0]) 
-                                    for s in self.positions.position if s in data["symbol"].values)
+                total_exposure = sum(abs(self.positions._position.get(s, 0) * data[data["symbol"] == s]["close"].iloc[0]) 
+                                    for s in self.positions._position if s in data["symbol"].values)
                 total_exposure -= abs(position_value)  # Remove current position from calculation
                 
                 # Calculate maximum additional exposure allowed
@@ -297,7 +297,7 @@ class BacktestEngine:
                 self.current_capital -= order_value + transaction_cost
                 
                 # Update positions
-                self.positions.position[symbol] = new_position
+                self.positions._position[symbol] = new_position
                 
                 # Record order
                 order = {
@@ -329,7 +329,7 @@ class BacktestEngine:
         """
         # Calculate position values
         position_value = 0.0
-        for symbol, shares in self.positions.position.items():
+        for symbol, shares in self.positions._position.items():
             # Skip if position is zero
             if shares == 0:
                 continue

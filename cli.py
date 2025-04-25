@@ -27,7 +27,6 @@ def _generate_report(results, orders, config, output_file):
     :param output_file: Path to the output HTML file
     """
     # Create interactive plot
-    print(results.columns)
     from plotly.subplots import make_subplots
     fig = make_subplots(rows=4, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.25, 0.1, 0.45, 0.2], subplot_titles=("Equity Curve", "Profit/Loss", "OHLC Chart", "Drawdown"))
     
@@ -239,7 +238,7 @@ def run_backtest(config_file, output, verbose):
     
     # Save orders
     if engine.orders:
-        orders_df = pd.DataFrame(engine.orders)
+        orders_df = pd.DataFrame(engine.orders.order)
         orders_df.to_csv(f"{output}/orders_{timestamp}.csv", index=False)
     
     # Save performance metrics
